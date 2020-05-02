@@ -18,6 +18,7 @@ members = [
 [dependencies]
 clap = "2.33.0"
 blake2 = "0.8.1"
+blake3 = "0.3.3"
 atty = "0.2.14"
 log = "0.4.8"
 fern = "0.6.0"

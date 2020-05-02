@@ -10,6 +10,9 @@ use crate::header;
 use crate::Error;
 use crate::HashSum;
 use crate::Reader;
+use crate::{HashFunction, HasherBuilder};
+
+pub const SOURCE_HASH_LENGTH: usize = 64;
 
 #[derive(Clone)]
 pub struct ChunkDescriptor {
@@ -26,6 +29,24 @@ impl From<dict::ChunkDescriptor> for ChunkDescriptor {
             archive_size: dict.archive_size,
             archive_offset: dict.archive_offset,
             source_size: dict.source_size,
+        }
+    }
+}
+
+impl From<dict::HashFunction> for HashFunction {
+    fn from(value: dict::HashFunction) -> Self {
+        match value {
+            dict::HashFunction::Blake2 => HashFunction::Blake2,
+            dict::HashFunction::Blake3 => HashFunction::Blake3,
+        }
+    }
+}
+
+impl From<HashFunction> for dict::HashFunction {
+    fn from(value: HashFunction) -> Self {
+        match value {
+            HashFunction::Blake2 => dict::HashFunction::Blake2,
+            HashFunction::Blake3 => dict::HashFunction::Blake3,
         }
     }
 }
@@ -53,7 +74,8 @@ pub struct Archive {
     source_checksum: HashSum,
 
     chunker_config: ChunkerConfig,
-    chunk_hash_length: usize,
+    chunk_hasher: HasherBuilder,
+    source_hasher: HasherBuilder,
 }
 
 impl Archive {
@@ -131,7 +153,18 @@ impl Archive {
             total_chunks: dictionary.rebuild_order.iter().count(),
             rebuild_order: dictionary.rebuild_order,
             chunk_data_offset,
-            chunk_hash_length: chunker_params.chunk_hash_length as usize,
+            chunk_hasher: HasherBuilder {
+                hash_length: chunker_params.chunk_hash_length as usize,
+                function: dict::HashFunction::from_i32(chunker_params.hash_function)
+                    .ok_or(Error::UnknownChunkHasher)?
+                    .into(),
+            },
+            source_hasher: HasherBuilder {
+                hash_length: SOURCE_HASH_LENGTH,
+                function: dict::HashFunction::from_i32(dictionary.source_hash_function)
+                    .ok_or(Error::UnknownSourceHasher)?
+                    .into(),
+            },
             chunker_config: ChunkerConfig::try_from(chunker_params)?,
             source_index,
         })
@@ -170,9 +203,6 @@ impl Archive {
     pub fn header_size(&self) -> usize {
         self.header_size
     }
-    pub fn chunk_hash_length(&self) -> usize {
-        self.chunk_hash_length
-    }
     pub fn chunk_compression(&self) -> Compression {
         self.chunk_compression
     }
@@ -184,6 +214,12 @@ impl Archive {
     }
     pub fn rebuild_order(&self) -> &[u32] {
         &self.rebuild_order
+    }
+    pub fn chunk_hasher(&self) -> HasherBuilder {
+        self.chunk_hasher
+    }
+    pub fn source_hasher(&self) -> HasherBuilder {
+        self.source_hasher
     }
 
     // Group chunks which are placed in sequence inside archive

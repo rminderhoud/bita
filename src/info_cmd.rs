@@ -43,10 +43,14 @@ pub fn print_archive(archive: &Archive) {
         size_to_str(archive.compressed_size() + archive.header_size() as u64)
     );
     info!("  Header checksum: {}", archive.header_checksum());
-
     print_chunker_config(&archive.chunker_config());
+    info!("  Chunk hash function: {}", archive.chunk_hasher().function);
 
     info!("Source:");
+    info!(
+        "  Source hash function: {}",
+        archive.source_hasher().function
+    );
     info!("  Source checksum: {}", archive.source_checksum());
     info!(
         "  Chunks in source: {} (unique: {})",

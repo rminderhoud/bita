@@ -35,6 +35,10 @@ async fn chunk_file(
     let mut total_size = 0u64;
     let mut total_compressed_size = 0u64;
     let mut total_chunks = 0;
+    let chunk_hasher = bitar::HasherBuilder {
+        function: bitar::HashFunction::Blake3,
+        hash_length: 64,
+    };
     {
         let mut file = File::open(path).await.expect("failed to open output file");
         let mut unique_chunk = HashSet::new();
@@ -42,7 +46,8 @@ async fn chunk_file(
         let mut chunk_stream = chunker
             .map(|result| {
                 let (offset, chunk) = result.expect("error while chunking");
-                tokio::task::spawn(async move { (HashSum::b2_digest(&chunk, 64), offset, chunk) })
+                let hasher = chunk_hasher.build();
+                tokio::task::spawn(async move { (hasher.hash_sum(&chunk), offset, chunk) })
             })
             .buffered(num_chunk_buffers)
             .map(|result| {

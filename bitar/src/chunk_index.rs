@@ -7,7 +7,7 @@ use crate::{
     chunk_dictionary::ChunkDictionary,
     chunk_location_map::{ChunkLocation, ChunkLocationMap},
     chunker::{Chunker, ChunkerConfig},
-    Error, HashSum,
+    Error, HashSum, HasherBuilder,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -63,7 +63,7 @@ pub struct ChunkIndex(HashMap<HashSum, ChunkSizeAndOffset>);
 impl ChunkIndex {
     pub async fn from_readable<T>(
         chunker_config: &ChunkerConfig,
-        hash_length: usize,
+        hasher: HasherBuilder,
         max_buffered_chunks: usize,
         readable: &mut T,
     ) -> Result<Self, Error>
@@ -73,14 +73,9 @@ impl ChunkIndex {
         let chunker = Chunker::new(chunker_config, readable);
         let mut chunk_stream = chunker
             .map(|result| {
+                let hasher = hasher.build();
                 tokio::task::spawn(async move {
-                    result.map(|(offset, chunk)| {
-                        (
-                            HashSum::b2_digest(&chunk, hash_length as usize),
-                            offset,
-                            chunk.len(),
-                        )
-                    })
+                    result.map(|(offset, chunk)| (hasher.hash_sum(&chunk), offset, chunk.len()))
                 })
             })
             .buffered(max_buffered_chunks);

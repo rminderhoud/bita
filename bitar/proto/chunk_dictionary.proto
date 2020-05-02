@@ -2,6 +2,11 @@ syntax = "proto3";
 
 package chunk_dictionary;
 
+enum HashFunction {
+  BLAKE2 = 0;
+  BLAKE3 = 1;
+}
+
 message ChunkDescriptor {
   // Hash of (uncompressed) chunk
   bytes checksum = 1;
@@ -28,6 +33,8 @@ message ChunkerParameters {
   uint32 rolling_hash_window_size = 4;
   uint32 chunk_hash_length = 5;
   ChunkingAlgorithm chunking_algorithm = 6;
+  // hash_function is the hash function used for genereting chunk checksums
+  HashFunction hash_function = 7;
 }
 
 message ChunkCompression {
@@ -62,4 +69,7 @@ message ChunkDictionary {
 
   // Chunk descriptors in order of first occurence in source file
   repeated ChunkDescriptor chunk_descriptors = 7;
+
+  // source_hash is the hash type used for genereting a the source file checksum 
+  HashFunction source_hash_function = 8;
 }

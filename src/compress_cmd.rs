@@ -1,4 +1,3 @@
-use blake2::{Blake2b, Digest};
 use futures_util::future;
 use futures_util::stream::StreamExt;
 use log::*;
@@ -12,20 +11,21 @@ use crate::info_cmd;
 use crate::string_utils::*;
 use bitar::build_header;
 use bitar::chunk_dictionary as dict;
-use bitar::{Chunker, ChunkerConfig, Compression, Error, HashSum};
+use bitar::{Chunker, ChunkerConfig, Compression, Error, HashSum, HasherBuilder};
 
 pub const PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 async fn chunk_input<T>(
     mut input: T,
     chunker_config: &ChunkerConfig,
+    source_hasher: HasherBuilder,
     compression: Compression,
     temp_file_path: &std::path::Path,
-    hash_length: usize,
+    chunk_hasher: HasherBuilder,
     num_chunk_buffers: usize,
 ) -> Result<
     (
-        Vec<u8>,
+        HashSum,
         Vec<bitar::chunk_dictionary::ChunkDescriptor>,
         u64,
         Vec<usize>,
@@ -35,13 +35,13 @@ async fn chunk_input<T>(
 where
     T: AsyncRead + Unpin,
 {
-    let mut source_hasher = Blake2b::new();
     let mut unique_chunks = HashMap::new();
     let mut source_size: u64 = 0;
     let mut chunk_order = Vec::new();
     let mut archive_offset: u64 = 0;
     let mut unique_chunk_index: usize = 0;
     let mut archive_chunks = Vec::new();
+    let mut source_hasher = source_hasher.build();
 
     let mut temp_file = OpenOptions::new()
         .write(true)
@@ -58,13 +58,8 @@ where
                 // Build hash of full source
                 source_hasher.input(&chunk);
                 source_size += chunk.len() as u64;
-                tokio::task::spawn(async move {
-                    (
-                        HashSum::b2_digest(&chunk, hash_length as usize),
-                        offset,
-                        chunk,
-                    )
-                })
+                let hasher = chunk_hasher.build();
+                tokio::task::spawn(async move { (hasher.hash_sum(&chunk), offset, chunk) })
             })
             .buffered(num_chunk_buffers)
             .filter_map(|result| {
@@ -138,7 +133,7 @@ where
         }
     }
     Ok((
-        source_hasher.result().to_vec(),
+        source_hasher.finilize(),
         archive_chunks,
         source_size,
         chunk_order,
@@ -172,6 +167,16 @@ impl Command {
             .open(self.output.clone())
             .expect("failed to open output file");
 
+        // TODO: make configurable
+        let chunk_hasher = HasherBuilder {
+            function: bitar::HashFunction::Blake3,
+            hash_length: self.hash_length,
+        };
+        let source_hasher = HasherBuilder {
+            function: bitar::HashFunction::Blake3,
+            hash_length: bitar::SOURCE_HASH_LENGTH,
+        };
+
         let (source_hash, archive_chunks, source_size, chunk_order) =
             if let Some(input_path) = self.input {
                 chunk_input(
@@ -179,9 +184,10 @@ impl Command {
                         .await
                         .expect("failed to open input file"),
                     &chunker_config,
+                    source_hasher,
                     compression,
                     &self.temp_file,
-                    self.hash_length,
+                    chunk_hasher,
                     self.num_chunk_buffers,
                 )
                 .await?
@@ -190,9 +196,10 @@ impl Command {
                 chunk_input(
                     tokio::io::stdin(),
                     &chunker_config,
+                    source_hasher,
                     compression,
                     &self.temp_file,
-                    self.hash_length,
+                    chunk_hasher,
                     self.num_chunk_buffers,
                 )
                 .await?
@@ -207,6 +214,7 @@ impl Command {
                 max_chunk_size: hash_config.max_chunk_size as u32,
                 rolling_hash_window_size: hash_config.window_size as u32,
                 chunk_hash_length: self.hash_length as u32,
+                hash_function: dict::HashFunction::from(chunk_hasher.function) as i32,
                 chunking_algorithm: dict::chunker_parameters::ChunkingAlgorithm::Buzhash as i32,
             },
             ChunkerConfig::RollSum(hash_config) => dict::ChunkerParameters {
@@ -215,6 +223,7 @@ impl Command {
                 max_chunk_size: hash_config.max_chunk_size as u32,
                 rolling_hash_window_size: hash_config.window_size as u32,
                 chunk_hash_length: self.hash_length as u32,
+                hash_function: dict::HashFunction::from(chunk_hasher.function) as i32,
                 chunking_algorithm: dict::chunker_parameters::ChunkingAlgorithm::Rollsum as i32,
             },
             ChunkerConfig::FixedSize(chunk_size) => dict::ChunkerParameters {
@@ -223,6 +232,7 @@ impl Command {
                 rolling_hash_window_size: 0,
                 max_chunk_size: chunk_size as u32,
                 chunk_hash_length: self.hash_length as u32,
+                hash_function: dict::HashFunction::from(chunk_hasher.function) as i32,
                 chunking_algorithm: dict::chunker_parameters::ChunkingAlgorithm::FixedSize as i32,
             },
         };
@@ -232,9 +242,10 @@ impl Command {
             rebuild_order: chunk_order.iter().map(|&index| index as u32).collect(),
             application_version: PKG_VERSION.to_string(),
             chunk_descriptors: archive_chunks,
-            source_checksum: source_hash,
+            source_checksum: source_hash.to_vec(),
             chunk_compression: Some(self.compression.into()),
             source_total_size: source_size,
+            source_hash_function: dict::HashFunction::from(source_hasher.function) as i32,
             chunker_params: Some(chunker_params),
         };
         let header_buf = build_header(&file_header, None)?;

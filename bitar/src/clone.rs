@@ -75,7 +75,7 @@ where
     target.seek(SeekFrom::Start(0)).await?;
     let target_index = ChunkIndex::from_readable(
         &archive.chunker_config(),
-        archive.chunk_hash_length(),
+        archive.chunk_hasher().clone(),
         opts.get_max_buffered_chunks(),
         target,
     )
@@ -133,14 +133,13 @@ where
     I: AsyncRead + Unpin,
 {
     let mut total_read = 0;
-    let hash_length = archive.chunk_hash_length();
+    let hasher = archive.chunk_hasher();
     let seed_chunker = Chunker::new(archive.chunker_config(), input);
     let mut found_chunks = seed_chunker
         .map(|result| {
+            let hasher = hasher.build();
             tokio::task::spawn(async move {
-                result.map(|(_offset, chunk)| {
-                    (HashSum::b2_digest(&chunk, hash_length as usize), chunk)
-                })
+                result.map(|(_offset, chunk)| (hasher.hash_sum(&chunk), chunk))
             })
         })
         .buffered(opts.get_max_buffered_chunks())

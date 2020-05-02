@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use blake2::{Blake2b, Digest};
 use log::*;
 use reqwest::header::HeaderMap;
 use std::io::SeekFrom;
@@ -12,7 +11,7 @@ use crate::info_cmd;
 use crate::string_utils::*;
 use bitar::{
     clone_from_archive, clone_from_readable, clone_in_place, Archive, CloneOptions, CloneOutput,
-    Error, HashSum, Reader, ReaderRemote,
+    Error, HashSum, HasherBuilder, Reader, ReaderRemote,
 };
 
 struct OutputFile {
@@ -41,18 +40,18 @@ impl OutputFile {
         Ok(())
     }
 
-    async fn checksum(&mut self) -> Result<HashSum, Error> {
+    async fn checksum(&mut self, hasher: HasherBuilder) -> Result<HashSum, Error> {
+        let mut hasher = hasher.build();
         self.file.seek(SeekFrom::Start(0)).await?;
-        let mut output_hasher = Blake2b::new();
         let mut buffer: Vec<u8> = vec![0; 4 * 1024 * 1024];
         loop {
             let rc = self.file.read(&mut buffer).await?;
             if rc == 0 {
                 break;
             }
-            output_hasher.input(&buffer[0..rc]);
+            hasher.input(&buffer[0..rc]);
         }
-        Ok(HashSum::from_slice(&output_hasher.result()[..]))
+        Ok(hasher.finilize())
     }
 }
 
@@ -111,6 +110,7 @@ async fn clone_archive(cmd: Command, reader: &mut dyn Reader) -> Result<(), Erro
     );
 
     // Create or open output file
+    // TODO: Ignore if file exists if it is a block device
     let output_file = tokio::fs::OpenOptions::new()
         .write(true)
         .read(cmd.verify_output || cmd.seed_output)
@@ -126,6 +126,7 @@ async fn clone_archive(cmd: Command, reader: &mut dyn Reader) -> Result<(), Erro
     // If it is a block device we should check its size against the target size before
     // writing. If a regular file then resize that file to target size.
     if output.is_block_dev() {
+        // TODO: Ignore if block devide is bigger than the source file if using force?
         let size = output.size().await?;
         if size != archive.total_source_size() {
             panic!(
@@ -211,7 +212,7 @@ async fn clone_archive(cmd: Command, reader: &mut dyn Reader) -> Result<(), Erro
 
     if cmd.verify_output {
         info!("Verifying checksum of {}...", cmd.output.display());
-        let sum = output.checksum().await?;
+        let sum = output.checksum(archive.source_hasher()).await?;
         let expected_checksum = archive.source_checksum();
         if sum == *expected_checksum {
             info!("Checksum verified Ok");
