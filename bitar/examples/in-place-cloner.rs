@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Scan the output file for chunks and build a chunk index
     let mut output_index = ChunkIndex::new_empty(archive.chunk_hash_length());
     {
-        let chunker = archive.chunker_config().new_chunker(&mut output_file);
+        let chunker = archive.chunker_config().new_stream(&mut output_file);
         let mut chunk_stream = chunker.map_ok(|(offset, chunk)| (offset, chunk.verify()));
         while let Some(r) = chunk_stream.next().await {
             let (offset, verified) = r?;

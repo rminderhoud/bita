@@ -90,7 +90,7 @@ async fn verify_chunks<P1: AsRef<Path>, P2: AsRef<Path>>(
     expected_sums_path: P2,
 ) {
     const SUM_LEN: usize = 16;
-    let chunker = config.new_chunker(tokio::fs::File::open(source).await.unwrap());
+    let chunker = config.new_stream(tokio::fs::File::open(source).await.unwrap());
     let sums: Vec<Vec<u8>> = chunker
         .map(|result| Blake2b512::digest(result.unwrap().1.data())[0..SUM_LEN].to_vec())
         .collect()

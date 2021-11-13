@@ -83,7 +83,7 @@ where
     C: AsyncWrite + AsyncSeek + Unpin + Send,
 {
     let chunk_stream = config
-        .new_chunker(input)
+        .new_stream(input)
         .map(|r| spawn_blocking(|| r.map(|(_, chunk)| chunk.verify())))
         .buffered(max_buffered_chunks)
         .map(|r| match r {
@@ -144,7 +144,7 @@ where
     R: AsyncRead + Unpin + Send,
 {
     let mut chunk_stream = config
-        .new_chunker(readable)
+        .new_stream(readable)
         .map(|r| spawn_blocking(|| r.map(|(offset, chunk)| (offset, chunk.verify()))))
         .buffered(max_buffered_chunks);
     let mut index = ChunkIndex::new_empty(hash_length);

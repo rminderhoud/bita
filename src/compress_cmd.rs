@@ -51,7 +51,7 @@ where
             temp_file_path.display()
         ))?;
     {
-        let chunker = chunker_config.new_chunker(&mut input);
+        let chunker = chunker_config.new_stream(&mut input);
         let mut chunk_stream = chunker
             .map(|result| {
                 let (offset, chunk) = result.expect("error while chunking");

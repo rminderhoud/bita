@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut read_seed_bytes = 0;
     let mut chunk_stream = archive
         .chunker_config()
-        .new_chunker(OpenOptions::new().read(true).open(example_seed).await?)
+        .new_stream(OpenOptions::new().read(true).open(example_seed).await?)
         .map_ok(|(_offset, chunk)| chunk.verify());
     while let Some(result) = chunk_stream.next().await {
         let verified = result?;
