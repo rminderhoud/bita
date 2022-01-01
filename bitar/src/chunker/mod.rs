@@ -1,9 +1,11 @@
 //! Chunker related functions and types.
+mod blocking_chunker;
 mod config;
 mod fixed_size;
 mod rolling_hash;
 mod streaming_chunker;
 
+pub use blocking_chunker::BlockingChunker;
 pub use config::{Config, FilterBits, FilterConfig};
 pub use fixed_size::FixedSizeChunker;
 pub use rolling_hash::RollingHashChunker;

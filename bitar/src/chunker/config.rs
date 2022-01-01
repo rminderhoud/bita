@@ -1,9 +1,12 @@
-use std::io;
+use std::io::{self, Read};
 
 use futures_util::Stream;
 use tokio::io::AsyncRead;
 
-use super::{fixed_size::FixedSizeChunker, rolling_hash::RollingHashChunker, StreamingChunker};
+use super::{
+    fixed_size::FixedSizeChunker, rolling_hash::RollingHashChunker, BlockingChunker,
+    StreamingChunker,
+};
 use crate::{
     rolling_hash::{BuzHash, RollSum},
     Chunk,
@@ -85,6 +88,30 @@ impl Config {
                 source,
             )),
             Config::FixedSize(fixed_size) => Box::new(StreamingChunker::new(
+                FixedSizeChunker::new(*fixed_size),
+                source,
+            )),
+        }
+    }
+
+    /// Create a blocking chunker using config.
+    pub fn new_iter<'r, R>(
+        &self,
+        source: R,
+    ) -> Box<dyn Iterator<Item = io::Result<(u64, Chunk)>> + Send + 'r>
+    where
+        R: Read + Send + 'r,
+    {
+        match self {
+            Config::BuzHash(filter) => Box::new(BlockingChunker::new(
+                RollingHashChunker::new(BuzHash::new(filter.window_size), filter),
+                source,
+            )),
+            Config::RollSum(filter) => Box::new(BlockingChunker::new(
+                RollingHashChunker::new(RollSum::new(filter.window_size), filter),
+                source,
+            )),
+            Config::FixedSize(fixed_size) => Box::new(BlockingChunker::new(
                 FixedSizeChunker::new(*fixed_size),
                 source,
             )),

@@ -90,20 +90,29 @@ async fn verify_chunks<P1: AsRef<Path>, P2: AsRef<Path>>(
     expected_sums_path: P2,
 ) {
     const SUM_LEN: usize = 16;
-    let chunker = config.new_stream(tokio::fs::File::open(source).await.unwrap());
-    let sums: Vec<Vec<u8>> = chunker
+
+    // Create sums both from a streaming and iterating chunker.
+    let stream_sums: Vec<Vec<u8>> = config
+        .new_stream(tokio::fs::File::open(&source).await.unwrap())
         .map(|result| Blake2b512::digest(result.unwrap().1.data())[0..SUM_LEN].to_vec())
         .collect()
         .await;
 
+    let iter_sums: Vec<Vec<u8>> = config
+        .new_iter(std::fs::File::open(source).unwrap())
+        .map(|result| Blake2b512::digest(result.unwrap().1.data())[0..SUM_LEN].to_vec())
+        .collect();
+
     if std::env::var("MAKE_GOLDEN").is_ok() {
         // If MAKE_GOLDEN is set then generate the expected sums file.
-        let flat_sums: Vec<u8> = sums.clone().into_iter().flatten().collect();
+        let flat_sums: Vec<u8> = stream_sums.clone().into_iter().flatten().collect();
         std::fs::write(&expected_sums_path, flat_sums).unwrap();
     }
     let expected_sums = std::fs::read(expected_sums_path).unwrap();
     for (i, expected_sum) in expected_sums[..].chunks(SUM_LEN).enumerate() {
-        assert_eq!(sums[i], expected_sum, "sum index {}", i);
+        assert_eq!(stream_sums[i], expected_sum, "stream sum index {}", i);
+        assert_eq!(iter_sums[i], expected_sum, "iter sum index {}", i);
     }
-    assert_eq!(sums.len(), expected_sums.chunks(SUM_LEN).count());
+    assert_eq!(stream_sums.len(), expected_sums.chunks(SUM_LEN).count());
+    assert_eq!(iter_sums.len(), expected_sums.chunks(SUM_LEN).count());
 }
